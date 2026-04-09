@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import time
+from base64 import b64decode
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,8 @@ class Config:
     supervisor_github_login: str | None = None
     codex_trigger_command: str | None = None
     codex_commit_author_hint: str = "codex"
+    task_file_path: str = "orchestrator/tasks/current-task.json"
+    result_file_path: str = "orchestrator/reports/latest-result.json"
 
 
 def load_config() -> Config:
@@ -58,6 +61,8 @@ def load_config() -> Config:
         supervisor_github_login=os.getenv("SUPERVISOR_GITHUB_LOGIN"),
         codex_trigger_command=os.getenv("CODEX_TRIGGER_COMMAND"),
         codex_commit_author_hint=os.getenv("CODEX_COMMIT_AUTHOR_HINT", "codex"),
+        task_file_path=os.getenv("TASK_FILE_PATH", "orchestrator/tasks/current-task.json"),
+        result_file_path=os.getenv("RESULT_FILE_PATH", "orchestrator/reports/latest-result.json"),
     )
 
 
@@ -74,6 +79,9 @@ def load_state() -> dict[str, Any]:
         return {
             "last_supervisor_comment_id": None,
             "last_commit_sha": None,
+            "last_task_id": None,
+            "last_result_id": None,
+            "last_result_task_id": None,
             "status": "IDLE",
         }
     return json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -115,11 +123,37 @@ def fetch_pr(cfg: Config) -> dict[str, Any]:
     return response.json()
 
 
+def fetch_repo_file(cfg: Config, path: str, ref: str) -> dict[str, Any] | None:
+    url = f"https://api.github.com/repos/{cfg.repo_full_name}/contents/{path}"
+    response = requests.get(
+        url,
+        headers=github_headers(cfg.github_token),
+        params={"ref": ref},
+        timeout=30,
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
+
+
 def fetch_pr_commits(cfg: Config) -> list[dict[str, Any]]:
     url = f"https://api.github.com/repos/{cfg.repo_full_name}/pulls/{cfg.pr_number}/commits"
     response = requests.get(url, headers=github_headers(cfg.github_token), timeout=30)
     response.raise_for_status()
     return response.json()
+
+
+def parse_json_file_response(file_response: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not file_response:
+        return None
+
+    if file_response.get("encoding") != "base64":
+        raise RuntimeError("Unsupported GitHub content encoding")
+
+    content = file_response.get("content", "")
+    decoded = b64decode(content).decode("utf-8")
+    return json.loads(decoded)
 
 
 def is_supervisor_comment(comment: dict[str, Any], cfg: Config) -> bool:
@@ -163,7 +197,25 @@ def latest_commit(cfg: Config) -> dict[str, Any] | None:
     return commits[-1]
 
 
-def trigger_codex(cfg: Config, comment: dict[str, Any]) -> None:
+def load_task_payload(cfg: Config, pr: dict[str, Any]) -> dict[str, Any] | None:
+    head_ref = ((pr.get("head") or {}).get("ref")) or "main"
+    file_response = fetch_repo_file(cfg, cfg.task_file_path, head_ref)
+    return parse_json_file_response(file_response)
+
+
+def load_result_payload(cfg: Config, pr: dict[str, Any]) -> dict[str, Any] | None:
+    head_ref = ((pr.get("head") or {}).get("ref")) or "main"
+    file_response = fetch_repo_file(cfg, cfg.result_file_path, head_ref)
+    return parse_json_file_response(file_response)
+
+
+def trigger_codex(
+    cfg: Config,
+    *,
+    trigger_source: str,
+    task_payload: dict[str, Any] | None = None,
+    comment: dict[str, Any] | None = None,
+) -> None:
     if not cfg.codex_trigger_command:
         log_event("No CODEX_TRIGGER_COMMAND configured. Skipping Codex trigger.")
         return
@@ -171,10 +223,22 @@ def trigger_codex(cfg: Config, comment: dict[str, Any]) -> None:
     env = os.environ.copy()
     env["PINGER_REPO_FULL_NAME"] = cfg.repo_full_name
     env["PINGER_PR_NUMBER"] = str(cfg.pr_number)
-    env["PINGER_COMMENT_ID"] = str(comment.get("id"))
-    env["PINGER_COMMENT_BODY"] = comment.get("body", "") or ""
+    env["PINGER_TRIGGER_SOURCE"] = trigger_source
 
-    log_event(f"Triggering Codex via: {cfg.codex_trigger_command}")
+    if task_payload:
+        env["PINGER_TASK_ID"] = str(task_payload.get("task_id", "") or "")
+        env["PINGER_TASK_TITLE"] = str(task_payload.get("title", "") or "")
+        env["PINGER_TASK_GOAL"] = str(task_payload.get("goal", "") or "")
+        env["PINGER_TASK_JSON"] = json.dumps(task_payload, ensure_ascii=False)
+
+    if comment:
+        env["PINGER_COMMENT_ID"] = str(comment.get("id"))
+        env["PINGER_COMMENT_BODY"] = comment.get("body", "") or ""
+
+    log_event(
+        f"Triggering Codex via: {cfg.codex_trigger_command} "
+        f"(source={trigger_source})"
+    )
     subprocess.run(cfg.codex_trigger_command, shell=True, check=False, env=env)
 
 
@@ -196,6 +260,45 @@ def main() -> None:
                 state["status"] = "STOPPED_PR_CLOSED"
                 save_state(state)
                 break
+
+            task_payload = load_task_payload(cfg, pr)
+            if task_payload:
+                task_id = task_payload.get("task_id")
+                task_status = str(task_payload.get("status", "")).lower()
+
+                if task_status in {"cancelled", "success"}:
+                    log_event(
+                        f"Task file present but already terminal: "
+                        f"task_id={task_id} status={task_status}"
+                    )
+                elif task_id and task_id != state.get("last_task_id"):
+                    state["last_task_id"] = task_id
+                    state["status"] = "TASK_READY"
+                    save_state(state)
+                    log_event(f"New task payload detected: task_id={task_id}")
+                    trigger_codex(
+                        cfg,
+                        trigger_source="task_file",
+                        task_payload=task_payload,
+                    )
+                    state["status"] = "WAITING_FOR_CODEX_OUTPUT"
+                    save_state(state)
+
+            result_payload = load_result_payload(cfg, pr)
+            if result_payload:
+                result_id = result_payload.get("result_id")
+                result_task_id = result_payload.get("task_id")
+                result_status = result_payload.get("status")
+
+                if result_id and result_id != state.get("last_result_id"):
+                    state["last_result_id"] = result_id
+                    state["last_result_task_id"] = result_task_id
+                    state["status"] = "AWAITING_EVALUATION"
+                    save_state(state)
+                    log_event(
+                        f"New result payload detected: result_id={result_id} "
+                        f"task_id={result_task_id} status={result_status}"
+                    )
 
             supervisor_comment = latest_supervisor_comment(cfg)
             if supervisor_comment:
@@ -222,7 +325,11 @@ def main() -> None:
                     if status in ("CONTINUE", None):
                         state["status"] = "TRIGGERING_CODEX"
                         save_state(state)
-                        trigger_codex(cfg, supervisor_comment)
+                        trigger_codex(
+                            cfg,
+                            trigger_source="supervisor_comment",
+                            comment=supervisor_comment,
+                        )
                         state["status"] = "WAITING_FOR_CODEX_OUTPUT"
                         save_state(state)
 
