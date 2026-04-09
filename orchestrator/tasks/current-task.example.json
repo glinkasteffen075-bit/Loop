@@ -1,0 +1,31 @@
+{
+  "task_id": "task-001",
+  "created_at": "2026-04-09T00:00:00Z",
+  "title": "Stabilize core startup path",
+  "goal": "Fix the immediate startup instability in the core module so the application can initialize without crashing.",
+  "context": [
+    "The global objective is to make the Isaac project stable.",
+    "The latest evidence indicates a crash during initialization.",
+    "Codex may use all tools available in its environment and has no time limit."
+  ],
+  "acceptance_criteria": [
+    "The targeted startup crash no longer reproduces in the current repository state.",
+    "At least one relevant smoke test or targeted test passes.",
+    "No new blocking error is introduced in the same execution path."
+  ],
+  "required_evidence": [
+    "List of changed files",
+    "Commands executed with exit codes",
+    "Targeted test or smoke-check output summary"
+  ],
+  "priority": "critical",
+  "status": "open",
+  "constraints": [
+    "Work from the latest repository state only.",
+    "If blocked, report the blocker precisely instead of claiming success."
+  ],
+  "notes_for_executor": [
+    "Use all relevant tools and verification steps available in the environment.",
+    "Take as much time as needed for careful implementation and validation."
+  ]
+}
