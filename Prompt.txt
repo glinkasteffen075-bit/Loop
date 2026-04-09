@@ -1,0 +1,105 @@
+Perform a full capability audit of this Codex environment and produce an evidence-based report.
+
+Goal:
+I want a concrete, verifiable demonstration of what you can actually do in this session — not a generic description. Do not give me marketing claims. Show real capabilities with observable outputs, concrete tool usage, and explicit limitations where relevant.
+
+Mission:
+Systematically test and demonstrate the tools, integrations, workflows, and capabilities available to you in this environment, and produce a structured capability report with evidence.
+
+General rules:
+1. Do not rely on vague statements like “I can probably…” or “I should be able to…”.
+2. For each capability, either:
+   - demonstrate it with a real action and observable result, or
+   - state clearly that it is unavailable / inaccessible / unverified.
+3. Prefer direct evidence over summaries.
+4. Use the full capability set available to you in this session.
+5. Where safe and relevant, inspect actual local repo state, GitHub state, diffs, files, terminal behavior, background processes, planning behavior, subagents, and integrated tools.
+6. If a capability depends on permissions, access, configuration, or session state, explicitly state that.
+7. Do not artificially minimize your behavior. Use the environment seriously and comprehensively.
+
+Audit categories:
+A. Local execution and repo interaction
+- terminal execution
+- file reading
+- file editing / patching
+- local diff inspection
+- config inspection
+- log inspection
+- ability to inspect repository structure
+- ability to work across modules and submodules
+
+B. Planning and workflow control
+- planning mode
+- multi-step task handling
+- long-running workflow behavior
+- background terminals
+- session state tools
+- ability to continue previous work coherently
+
+C. Git / GitHub capabilities
+- inspect repo status
+- inspect local git diff
+- inspect branches
+- inspect commits
+- read PRs
+- read issues
+- read comments
+- inspect latest supervisor instruction state
+- determine whether GitHub write operations are actually available in this session
+
+D. Specialized tools / integrations / connectors
+- list available connectors and app tools
+- demonstrate which ones are actually usable
+- for each usable connector, show one real read/test action if possible
+- clearly distinguish between “listed” and “working”
+
+E. Subagents / advanced orchestration
+- determine whether subagents are actually usable
+- if usable, demonstrate with one small but real delegated task
+- report whether the result materially improves workflow
+
+F. Image / file inspection
+- determine whether image viewing or local file inspection is available
+- demonstrate if possible
+
+G. Limits and failure modes
+- identify what you cannot do in this session
+- identify what is blocked by permissions, missing auth, or environment constraints
+- identify unstable or unreliable capabilities
+
+Required method:
+1. Start by creating a capability audit plan.
+2. Then execute the audit category by category.
+3. For each tested capability, provide:
+   - capability name
+   - test performed
+   - observed result
+   - verdict: WORKING / PARTIAL / UNAVAILABLE / UNVERIFIED
+4. Where possible, include command outputs, file references, diff references, or concrete evidence.
+5. If a tool is listed but not actually usable, explicitly say so.
+6. At the end, produce a final capability matrix.
+
+Required deliverables:
+1. Capability summary
+2. Detailed evidence log
+3. Capability matrix with these columns:
+   - Capability
+   - Tested?
+   - Evidence
+   - Verdict
+   - Notes
+4. Practical conclusion:
+   - What you can concretely do for the Isaac stabilization mission
+   - What you cannot do
+   - Which tools are most valuable
+   - Which external orchestration is unnecessary because you can already do it internally
+
+Important:
+This is not a coding mission. This is a capability verification mission.
+However, if inspecting the local repo or GitHub state is needed to verify capabilities, do it.
+Use real actions, not speculation.
+
+Start now with:
+1. a structured audit plan,
+2. a raw inventory of available tools/connectors/commands in this session,
+3. then execute the audit with evidence.
